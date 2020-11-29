@@ -4,6 +4,13 @@ import sbt._
 //noinspection TypeAnnotation
 object Dependencies {
 
+  val akkaInmemoryJournal = ("com.github.dnvriend" %% "akka-persistence-inmemory" % "2.5.15.2")
+    .exclude("com.typesafe.akka", "akka-actor")
+    .exclude("com.typesafe.akka", "akka-persistence")
+    .exclude("com.typesafe.akka", "akka-persistence-query")
+    .exclude("com.typesafe.akka", "akka-stream")
+    .exclude("com.typesafe.akka", "akka-protobuf")
+
   object Misc {
     val scalaLogging = "com.typesafe.scala-logging" %% "scala-logging" % "3.9.2"
     val deps = Seq(scalaLogging)
@@ -14,6 +21,7 @@ object Dependencies {
     val akkaManagementVersion = "1.0.9"
     val akkaPersistenceCassandraVersion = "1.0.3"
     val akkaHttpVersion = "10.2.1"
+
 
     val actor = "com.typesafe.akka" %% "akka-actor" % akkaVersion
     val persistence = "com.typesafe.akka" %% "akka-persistence" % akkaVersion
@@ -38,18 +46,13 @@ object Dependencies {
     val http4sVersion = "0.21.8"
     val circeVersion = "0.13.0"
 
-    val akkaInmemoryJournal = ("com.github.dnvriend" %% "akka-persistence-inmemory" % "2.5.15.2")
-      .exclude("com.typesafe.akka", "akka-actor")
-      .exclude("com.typesafe.akka", "akka-persistence")
-      .exclude("com.typesafe.akka", "akka-persistence-query")
-      .exclude("com.typesafe.akka", "akka-stream")
-      .exclude("com.typesafe.akka", "akka-protobuf")
 
   }
 
   object TestTools {
+    val slf4jVersion = "1.7.30"
     val scalaTest = "org.scalatest" %% "scalatest" % "3.2.2"
-    val log = "org.slf4j" % "slf4j-nop" % "1.7.30"
+    val log = "org.slf4j" % "slf4j-simple" % slf4jVersion
 //    val mockito = "org.mockito" % "mockito-all" % "1.10.19"
 //    val mockitoScala = "org.mockito" %% "mockito-scala" % "1.16.0"
 //    val mockitoScalaTest = "org.mockito" %% "mockito-scala-scalatest" % "1.16.0"
@@ -57,7 +60,7 @@ object Dependencies {
 //    val junitInterface = "com.novocode" % "junit-interface" % "0.11"
 //    val junitJupiter = "org.junit.jupiter" % "junit-jupiter-engine" % "5.7.0"
 
-    val deps = testDeps(scalaTest, log)
+    val deps = testDeps(scalaTest, log, akkaInmemoryJournal)
   }
   def scopeDeps(scope: String, modules: Seq[ModuleID]) = modules.map(m => m % scope)
   def testDeps(modules: ModuleID*) = scopeDeps("test", modules)

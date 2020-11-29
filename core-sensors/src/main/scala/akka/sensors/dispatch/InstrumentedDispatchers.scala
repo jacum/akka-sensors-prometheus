@@ -1,14 +1,15 @@
 package akka.sensors.dispatch
 
+import java.lang.management.{ManagementFactory, ThreadInfo, ThreadMXBean}
 import java.util.concurrent._
 import java.util.concurrent.atomic.LongAdder
 
 import akka.dispatch._
 import akka.event.Logging.{Error, Warning}
 import akka.sensors.dispatch.DispatcherInstrumentationWrapper.Run
-import akka.sensors.{MetricsBuilders, RunnableWatcher}
+import akka.sensors.{AkkaSensors, MetricsBuilders, RunnableWatcher}
 import com.typesafe.config.Config
-import io.prometheus.client.Histogram
+import io.prometheus.client.{Gauge, Histogram}
 
 import scala.PartialFunction.condOpt
 import scala.concurrent.duration.{Duration, FiniteDuration}
@@ -22,23 +23,30 @@ object DispatcherMetrics extends MetricsBuilders {
     .help(s"Milliseconds in queue")
     .labelNames("dispatcher")
     .register(registry)
+
   val runTime: Histogram = millisHistogram
     .name("run_time_millis")
     .help(s"Milliseconds running")
     .labelNames("dispatcher")
     .register(registry)
+
   val activeThreads: Histogram = valueHistogram(max = 32)
     .name("active_threads_total")
     .help(s"Active worker threads")
     .labelNames("dispatcher")
     .register(registry)
-//
-//  val totalThreads: Gauge = gauge
-//    .name("threads_total")
-//    .help("Total worker threads")
-//    .labelNames("dispatcher")
-//    .register(registry)
 
+  val threadStates: Histogram = valueHistogram(max = 32)
+    .name("threads_total")
+    .help("Threads per state and dispatcher")
+    .labelNames("dispatcher", "state")
+    .register(registry)
+
+  val executorValue: Gauge = gauge
+    .name("executor_value")
+    .help("Internal executor values per type")
+    .labelNames("dispatcher", "value")
+    .register(registry)
 }
 
 object AkkaRunnableWrapper {
@@ -65,12 +73,14 @@ class DispatcherInstrumentationWrapper(config: Config) {
   import DispatcherInstrumentationWrapper._
   import Helpers._
 
+  private val executorConfig = config.getConfig("instrumented-executor")
+
   private val instruments: List[InstrumentedRun] =
     List(
-      if (config.getBoolean("instrumented-executor.measure-runs")) Some(meteredRun(config.getString("id"))) else None,
-      if (config.getBoolean("instrumented-executor.watch-runs")) Some(watchedRun(config.getString("id"),
-        config.getMillisDuration("instrumented-executor.too-long-run"),
-        config.getMillisDuration("instrumented-executor.check-interval"))) else None,
+      if (executorConfig.getBoolean("measure-runs")) Some(meteredRun(config.getString("id"))) else None,
+      if (executorConfig.getBoolean("watch-long-runs"))
+        Some(watchedRun(config.getString("id"), executorConfig.getMillisDuration("watch-too-long-run"), executorConfig.getMillisDuration("watch-check-interval")))
+      else None
     ) flatten
 
   def apply(runnable: Runnable, execute: Runnable => Unit): Unit = {
@@ -135,7 +145,7 @@ object DispatcherInstrumentationWrapper {
   }
 
   def watchedRun(id: String, tooLongThreshold: Duration, checkInterval: Duration): InstrumentedRun = {
-    val watcher = RunnableWatcher(tooLongRunThreshold = tooLongThreshold, checkInterval  = checkInterval)
+    val watcher = RunnableWatcher(tooLongRunThreshold = tooLongThreshold, checkInterval = checkInterval)
 
     () => { () =>
       val stop = watcher.start()
@@ -154,8 +164,62 @@ class InstrumentedExecutor(val config: Config, val prerequisites: DispatcherPrer
 
   override def createExecutorServiceFactory(id: String, threadFactory: ThreadFactory): ExecutorServiceFactory = {
     val esf = delegate.createExecutorServiceFactory(id, threadFactory)
+    import DispatcherMetrics._
     new ExecutorServiceFactory {
-      def createExecutorService: ExecutorService = esf.createExecutorService
+      def createExecutorService: ExecutorService = {
+        val es                = esf.createExecutorService
+        val activeCount       = executorValue.labels(id, "activeCount")
+        val corePoolSize      = executorValue.labels(id, "corePoolSize")
+        val largestPoolSize   = executorValue.labels(id, "largestPoolSize")
+        val maximumPoolSize   = executorValue.labels(id, "maximumPoolSize")
+        val queueSize         = executorValue.labels(id, "queueSize")
+        val completedTasks    = executorValue.labels(id, "completedTasks")
+        val poolSize          = executorValue.labels(id, "queueSize")
+        val steals            = executorValue.labels(id, "steals")
+        val parallelism       = executorValue.labels(id, "parallelism")
+        val queuedSubmissions = executorValue.labels(id, "queuedSubmissions")
+        val queuedTasks       = executorValue.labels(id, "queuedTasks")
+        val runningThreads    = executorValue.labels(id, "runningThreads")
+
+        es match {
+          case tp: ThreadPoolExecutor =>
+            AkkaSensors.executor.scheduleWithFixedDelay(
+              () => {
+                activeCount.set(tp.getActiveCount)
+                corePoolSize.set(tp.getCorePoolSize)
+                largestPoolSize.set(tp.getLargestPoolSize)
+                maximumPoolSize.set(tp.getMaximumPoolSize)
+                queueSize.set(tp.getQueue.size())
+                completedTasks.set(tp.getCompletedTaskCount.toDouble)
+                poolSize.set(tp.getPoolSize)
+              },
+              1L,
+              1L,
+              TimeUnit.SECONDS
+            ) // todo parametrise
+
+          case fj: ForkJoinPool =>
+            AkkaSensors.executor.scheduleWithFixedDelay(
+              () => {
+                poolSize.set(fj.getPoolSize)
+                steals.set(fj.getStealCount.toDouble)
+                parallelism.set(fj.getParallelism)
+                activeCount.set(fj.getActiveThreadCount)
+                queuedSubmissions.set(fj.getQueuedSubmissionCount)
+                queuedTasks.set(fj.getQueuedTaskCount.toDouble)
+                runningThreads.set(fj.getRunningThreadCount)
+              },
+              1L,
+              1L,
+              TimeUnit.SECONDS
+            ) // todo parametrise
+
+          case _ =>
+          // don't
+        }
+
+        es
+      }
     }
   }
 
@@ -183,7 +247,30 @@ class InstrumentedExecutor(val config: Config, val prerequisites: DispatcherPrer
 
 trait InstrumentedDispatcher extends Dispatcher {
 
-  private lazy val wrapper                       = new DispatcherInstrumentationWrapper(configurator.config)
+  def actorSystemName: String
+  private lazy val wrapper = new DispatcherInstrumentationWrapper(configurator.config)
+
+  private val threadMXBean: ThreadMXBean = ManagementFactory.getThreadMXBean
+
+  AkkaSensors.executor.scheduleWithFixedDelay(
+    () => {
+      val threads = threadMXBean
+        .getThreadInfo(threadMXBean.getAllThreadIds, 0)
+        .filter(t => t != null && t.getThreadName.startsWith(s"$actorSystemName-$id"))
+
+      Thread.State.values.foreach { state =>
+        val stateLabel = state.toString.toLowerCase
+        val count      = threads.count(_.getThreadState.name().equalsIgnoreCase(stateLabel))
+        DispatcherMetrics.threadStates
+          .labels(id, stateLabel)
+          .observe(count)
+      }
+    },
+    1L,
+    1L,
+    TimeUnit.SECONDS
+  ) // todo configure thread state dump frequency?
+
   override def execute(runnable: Runnable): Unit = wrapper(runnable, super.execute)
 
   /**
@@ -223,7 +310,9 @@ class InstrumentedDispatcherConfigurator(config: Config, prerequisites: Dispatch
     config.getNanosDuration("throughput-deadline-time"),
     configureExecutor(),
     config.getMillisDuration("shutdown-timeout")
-  ) with InstrumentedDispatcher
+  ) with InstrumentedDispatcher {
+    def actorSystemName: String = prerequisites.mailboxes.settings.name
+  }
 
   def dispatcher(): MessageDispatcher = instance
 
@@ -247,7 +336,9 @@ class InstrumentedPinnedDispatcherConfigurator(config: Config, prerequisites: Di
   }
 
   override def dispatcher(): MessageDispatcher =
-    new PinnedDispatcher(this, null, config.getString("id"), config.getMillisDuration("shutdown-timeout"), threadPoolConfig) with InstrumentedDispatcher
+    new PinnedDispatcher(this, null, config.getString("id"), config.getMillisDuration("shutdown-timeout"), threadPoolConfig) with InstrumentedDispatcher {
+      def actorSystemName: String = prerequisites.mailboxes.settings.name
+    }
 
 }
 

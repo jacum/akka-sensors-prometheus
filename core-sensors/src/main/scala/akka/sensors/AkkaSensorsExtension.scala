@@ -1,9 +1,16 @@
 package akka.sensors
 
+import java.util.concurrent.{Executors, ScheduledExecutorService}
+
 import akka.actor.{ActorSystem, ClassicActorSystemProvider, ExtendedActorSystem, Extension, ExtensionId, ExtensionIdProvider}
 import com.typesafe.config.Config
 import com.typesafe.scalalogging.LazyLogging
 import io.prometheus.client.{CollectorRegistry, Counter, Gauge, Histogram}
+
+object AkkaSensors {
+  // single-thread dedicated executor for low-frequent sensors' internal business
+  val executor: ScheduledExecutorService = Executors.newScheduledThreadPool(1)
+}
 
 class AkkaSensorsExtensionImpl(config: Config) extends Extension with MetricsBuilders with LazyLogging {
 
@@ -46,6 +53,37 @@ class AkkaSensorsExtensionImpl(config: Config) extends Extension with MetricsBui
     .name("cluster_members_total")
     .help(s"Cluster members")
     .register(registry)
+  val recoveryTime: Histogram = millisHistogram
+    .name("recovery_time_millis")
+    .help(s"Millis to process recovery")
+    .labelNames("actor")
+    .register(registry)
+  val persistTime: Histogram = millisHistogram
+    .name("persist_time_millis")
+    .help(s"Millis to process single event persist")
+    .labelNames("actor")
+    .register(registry)
+  val recoveryEvents: Counter = counter
+    .name("recovery_events_total")
+    .help(s"Recovery events by actors")
+    .labelNames("actor")
+    .register(registry)
+  val persistFailures: Counter = counter
+    .name("persist_failures_total")
+    .help(s"Persist failures")
+    .labelNames("actor")
+    .register(registry)
+  val recoveryFailures: Counter = counter
+    .name("recovery_failures_total")
+    .help(s"Recovery failures")
+    .labelNames("actor")
+    .register(registry)
+  val persistRejects: Counter = counter
+    .name("persist_rejects_total")
+    .help(s"Persist rejects")
+    .labelNames("actor")
+    .register(registry)
+
 }
 
 trait MetricsBuilders {

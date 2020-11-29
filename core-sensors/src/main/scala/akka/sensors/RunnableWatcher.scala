@@ -24,7 +24,6 @@ object RunnableWatcher extends LazyLogging {
   type StartTime = java.lang.Long
 
   private lazy val threads = ManagementFactory.getThreadMXBean
-  private lazy val internalExecutor = Executors.newScheduledThreadPool(1)
 
   def apply(
     tooLongRunThreshold: Duration,
@@ -36,28 +35,27 @@ object RunnableWatcher extends LazyLogging {
     val cache = TrieMap.empty[ThreadId, StartTime]
 
     val runnable = new Runnable with LazyLogging {
-      def run(): Unit = {
+      def run(): Unit =
         try {
           val currentTime = System.nanoTime()
           for {
             (threadId, startTime) <- cache
             duration = (currentTime - startTime).nanos
             if duration >= tooLongRunThreshold
-            _ <- cache.remove(threadId)
+            _          <- cache.remove(threadId)
             threadInfo <- Option(threads.getThreadInfo(threadId, maxDepth))
           } {
-            val threadName = threadInfo.getThreadName
-            val stackTrace = threadInfo.getStackTrace
+            val threadName          = threadInfo.getThreadName
+            val stackTrace          = threadInfo.getStackTrace
             val formattedStackTrace = stackTraceToString(stackTrace)
             logger.error(s"Detected a thread that is locked for ${duration.toMillis} ms: $threadName, current state:\t$formattedStackTrace")
           }
         } catch {
           case NonFatal(failure) => logger.error(s"failed to check hanging threads: $failure", failure)
         }
-      }
     }
-    internalExecutor.scheduleWithFixedDelay(runnable, checkInterval.length, checkInterval.length, checkInterval.unit)
 
+    AkkaSensors.executor.scheduleWithFixedDelay(runnable, checkInterval.length, checkInterval.length, checkInterval.unit)
 
     val add = (threadId: ThreadId) => {
       val startTime = System.nanoTime()
@@ -76,13 +74,13 @@ object RunnableWatcher extends LazyLogging {
   def apply(
     add: RunnableWatcher.ThreadId => Unit,
     remove: RunnableWatcher.ThreadId => Unit
-  ): RunnableWatcher = {
-
+  ): RunnableWatcher =
     new RunnableWatcher {
 
       def apply[T](f: => T): T = {
         val stop = start()
-        try f finally stop()
+        try f
+        finally stop()
       }
 
       def start(): () => Unit = {
@@ -91,12 +89,10 @@ object RunnableWatcher extends LazyLogging {
         () => remove(threadId)
       }
     }
-  }
 
   def stackTraceToString(xs: Array[StackTraceElement]): String = xs.mkString("\tat ", "\n\tat ", "")
 
 }
-
 
 object BlockingWatcher extends LazyLogging {
 

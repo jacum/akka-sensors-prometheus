@@ -1,11 +1,11 @@
 package akka.sensors
 
 import java.io.CharArrayWriter
-import java.util.UUID
 
 import akka.actor.{Actor, ActorSystem, NoSerializationVerificationNeeded, PoisonPill, Props}
 import akka.pattern.ask
-import akka.sensors.actor.InstrumentedActorMetrics
+import akka.sensors.actor.{ActorMetrics, PersistentActorMetrics}
+import akka.persistence.PersistentActor
 import akka.util.Timeout
 import com.typesafe.scalalogging.LazyLogging
 import io.prometheus.client.CollectorRegistry
@@ -27,8 +27,8 @@ class AkkaSensorsSpec extends AnyFreeSpec with LazyLogging with Eventually {
 
   implicit val ec: ExecutionContext = ExecutionContext.global
   private val system: ActorSystem = ActorSystem("instrumented")
-  private val probeActor = system.actorOf(Props(classOf[InstrumentedProbe]), s"probe-${UUID.randomUUID().toString}")
-
+  private val probeActor = system.actorOf(Props(classOf[InstrumentedProbe]), s"probe")
+  private val persistentActor = system.actorOf(Props(classOf[PersistentInstrumentedProbe]), s"persistent")
   implicit val registry: CollectorRegistry = CollectorRegistry.defaultRegistry
 
   "Launch akka app, and ensure it works" - {
@@ -48,7 +48,14 @@ class AkkaSensorsSpec extends AnyFreeSpec with LazyLogging with Eventually {
 
       probeActor ! PoisonPill
 
+      for (_ <- 1 to 100) sendEventAck
+
+      persistentActor ! PoisonPill
+
       Thread.sleep(100) // todo better condition?
+
+      val blockingIo = system.dispatchers.lookup("akka.actor.default-blocking-io-dispatcher")
+      blockingIo.execute(() => { Thread.sleep(100)})
 
       println(metrics)
 
@@ -65,7 +72,13 @@ class AkkaSensorsSpec extends AnyFreeSpec with LazyLogging with Eventually {
 
   private def pingActor = {
     val r = Await.result(
-      probeActor.ask(Ping)(Timeout.durationToTimeout(30 seconds)), 40 seconds)
+      probeActor.ask(Ping)(Timeout.durationToTimeout(10 seconds)), 15 seconds)
+    assert(r.toString == "Pong")
+  }
+
+  private def sendEventAck = {
+    val r = Await.result(
+      persistentActor.ask(ValidCommand)(Timeout.durationToTimeout(10 seconds)), 15 seconds)
     assert(r.toString == "Pong")
   }
 }
@@ -77,8 +90,10 @@ object InstrumentedActors {
   case object UnknownMessage  extends NoSerializationVerificationNeeded
   case object BlockTooLong extends NoSerializationVerificationNeeded
   case object Pong extends NoSerializationVerificationNeeded
+  case object ValidCommand extends NoSerializationVerificationNeeded
+  case class ValidEvent(id: String) extends NoSerializationVerificationNeeded
 
-  class InstrumentedProbe extends Actor with InstrumentedActorMetrics {
+  class InstrumentedProbe extends Actor with ActorMetrics {
     def receive: Receive = {
             case Ping =>
               Thread.sleep(Random.nextInt(3))
@@ -88,6 +103,22 @@ object InstrumentedActors {
             case BlockTooLong =>
               Thread.sleep(6000)
     }
+  }
+
+  class PersistentInstrumentedProbe extends PersistentActor with PersistentActorMetrics {
+    var counter = 0
+
+    def receiveCommand: Receive = {
+      case ValidCommand =>
+        val replyTo = sender()
+        persist(ValidEvent(counter.toString)) { _ =>
+          counter +=1
+          replyTo ! Pong
+        }
+      case x => println(x)
+    }
+
+    def persistenceId: String = context.self.actorRef.path.name
   }
 
 

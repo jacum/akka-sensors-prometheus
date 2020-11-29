@@ -36,7 +36,7 @@ object DispatcherMetrics extends MetricsBuilders {
     .labelNames("dispatcher")
     .register(registry)
 
-  val threadStates: Histogram = valueHistogram(max = 32)
+  val threadStates: Gauge = gauge
     .name("threads_total")
     .help("Threads per state and dispatcher")
     .labelNames("dispatcher", "state")
@@ -251,21 +251,22 @@ trait InstrumentedDispatcher extends Dispatcher {
   private lazy val wrapper = new DispatcherInstrumentationWrapper(configurator.config)
 
   private val threadMXBean: ThreadMXBean = ManagementFactory.getThreadMXBean
-  private val interestingStates = Set("runnable", "waiting", "timed_waiting", "blocked")
+  private val interestingStateNames = Set("runnable", "waiting", "timed_waiting", "blocked")
+  private val interestingStates = Thread.State.values.filter(s => interestingStateNames.contains(s.name().toLowerCase))
   AkkaSensors.executor.scheduleWithFixedDelay(
     () => {
       val threads = threadMXBean
         .getThreadInfo(threadMXBean.getAllThreadIds, 0)
         .filter(t => t != null
-          && interestingStates.contains(t.getThreadState.name().toLowerCase)
+          && interestingStateNames.contains(t.getThreadState.name().toLowerCase)
           && t.getThreadName.startsWith(s"$actorSystemName-$id"))
 
-      Thread.State.values.foreach { state =>
+      interestingStates foreach { state =>
         val stateLabel = state.toString.toLowerCase
         val count      = threads.count(_.getThreadState.name().equalsIgnoreCase(stateLabel))
         DispatcherMetrics.threadStates
           .labels(id, stateLabel)
-          .observe(count)
+          .set(count)
       }
     },
     1L,

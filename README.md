@@ -96,11 +96,3 @@ akka {
  - For anything additional to measure in actors, extend `*ActorMetrics` in your own traits.
  - Override `actorTag` for your own actor labelling schema. Just make sure you keep cardinality sane, make sure it's below 100.
 
-### Missing features
-- Thread state snapshots - make them configurable
-- Representative load test suite
-
-### Nice to haves
-- Cluster events - translate to cluster member/state numbers, how many up, how many unreachable etc.
-- Cluster sharding visibility/stats
-- Add 'scope' to Runnables, to make 'labels' for runnables of certain kind to Prometheus; stoplist for some of labels, also execution watcher on/off

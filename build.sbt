@@ -37,16 +37,10 @@ lazy val publishSettings = Seq(
   licenses := Seq("MIT" -> url("http://www.opensource.org/licenses/mit-license.html"))
 )
 
-
-lazy val defaultModuleSettings = commonSettings ++ dependencyOverrideSettings
-
 lazy val `core` = project.in(file("core-sensors"))
-  .settings(defaultModuleSettings ++ publishSettings)
+  .settings(commonSettings ++ publishSettings)
   .settings(
     moduleName := "core-sensors",
-    scalacOptions ++= Seq(
-      "-Ypartial-unification"
-    ),
-    libraryDependencies ++= Akka.deps ++ Prometheus.deps ++ TestTools.deps,
+    libraryDependencies ++= Akka.deps ++ Prometheus.deps ++ Misc.deps ++ TestTools.deps,
     dependencyOverrides ++= Akka.deps
   )

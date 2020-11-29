@@ -1,19 +1,16 @@
-package akka.dispatch
+package akka.sensors.dispatch
 
 import java.util.concurrent._
 import java.util.concurrent.atomic.LongAdder
-import java.util.{ConcurrentModificationException, Collection => JCollection, List => JList}
 
-import akka.dispatch.DispatcherInstrumentationWrapper.Run
+import akka.dispatch._
 import akka.event.Logging.{Error, Warning}
+import akka.sensors.dispatch.DispatcherInstrumentationWrapper.Run
 import akka.sensors.{MetricsBuilders, RunnableWatcher}
 import com.typesafe.config.Config
-import com.typesafe.scalalogging.LazyLogging
 import io.prometheus.client.Histogram
 
 import scala.PartialFunction.condOpt
-import scala.collection.JavaConverters._
-import scala.compat.Platform
 import scala.concurrent.duration.{Duration, FiniteDuration}
 
 object DispatcherMetrics extends MetricsBuilders {
@@ -120,15 +117,15 @@ object DispatcherInstrumentationWrapper {
     val active         = activeThreads.labels(id)
 
     () => {
-      val created = Platform.currentTime
+      val created = System.currentTimeMillis()
       () => {
-        val started = Platform.currentTime
-        queue.observe(started - created)
+        val started = System.currentTimeMillis()
+        queue.observe((started - created).toDouble)
         currentWorkers.increment()
         active.observe(currentWorkers.intValue())
         () => {
-          val stopped = Platform.currentTime
-          run.observe(stopped - started)
+          val stopped = System.currentTimeMillis()
+          run.observe((stopped - started).toDouble)
           currentWorkers.decrement()
           active.observe(currentWorkers.intValue)
           ()
@@ -164,14 +161,14 @@ class InstrumentedExecutor(val config: Config, val prerequisites: DispatcherPrer
 
   def configurator(executor: String): ExecutorServiceConfigurator =
     executor match {
-      case null | "" | "fork-join-executor" ⇒ new ForkJoinExecutorConfigurator(config.getConfig("fork-join-executor"), prerequisites)
-      case "thread-pool-executor"           ⇒ new ThreadPoolExecutorConfigurator(config.getConfig("thread-pool-executor"), prerequisites)
-      case fqcn ⇒
+      case null | "" | "fork-join-executor" => new ForkJoinExecutorConfigurator(config.getConfig("fork-join-executor"), prerequisites)
+      case "thread-pool-executor"           => new ThreadPoolExecutorConfigurator(config.getConfig("thread-pool-executor"), prerequisites)
+      case fqcn =>
         val args = List(classOf[Config] -> config, classOf[DispatcherPrerequisites] -> prerequisites)
         prerequisites.dynamicAccess
           .createInstanceFor[ExecutorServiceConfigurator](fqcn, args)
           .recover({
-            case exception ⇒
+            case exception =>
               throw new IllegalArgumentException(
                 """Cannot instantiate ExecutorServiceConfigurator ("executor = [%s]"), defined in [%s],
                 make sure it has an accessible constructor with a [%s,%s] signature"""
@@ -199,12 +196,12 @@ trait InstrumentedDispatcher extends Dispatcher {
           wrapper(mbox, executorService.execute)
           true
         } catch {
-          case _: RejectedExecutionException ⇒
+          case _: RejectedExecutionException =>
             try {
               wrapper(mbox, executorService.execute)
               true
             } catch { //Retry once
-              case e: RejectedExecutionException ⇒
+              case e: RejectedExecutionException =>
                 mbox.setAsIdle()
                 eventStream.publish(Error(e, getClass.getName, getClass, "registerForExecution was rejected twice!"))
                 throw e
@@ -237,8 +234,8 @@ class InstrumentedPinnedDispatcherConfigurator(config: Config, prerequisites: Di
   import Helpers._
 
   private val threadPoolConfig: ThreadPoolConfig = configureExecutor() match {
-    case e: ThreadPoolExecutorConfigurator ⇒ e.threadPoolConfig
-    case _ ⇒
+    case e: ThreadPoolExecutorConfigurator => e.threadPoolConfig
+    case _ =>
       prerequisites.eventStream.publish(
         Warning(
           "PinnedDispatcherConfigurator",

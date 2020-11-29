@@ -1,6 +1,6 @@
 package akka.dispatch
 
-import DispatcherInstrumentationWrapper.Run
+import akka.sensors.dispatch.DispatcherInstrumentationWrapper.Run
 
 import scala.PartialFunction.condOpt
 
@@ -11,5 +11,6 @@ object ScalaRunnableWrapper {
 
   class OverrideBatchable(self: Runnable, r: Run) extends Batchable with Runnable {
     def run(): Unit = r(() => self.run())
+    def isBatchable: Boolean = true
   }
 }

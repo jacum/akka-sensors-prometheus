@@ -3,8 +3,9 @@ package akka.sensors
 import java.io.CharArrayWriter
 import java.util.UUID
 
-import akka.actor.{Actor, ActorSystem, InstrumentedActorMetrics, NoSerializationVerificationNeeded, PoisonPill, Props}
+import akka.actor.{Actor, ActorSystem, NoSerializationVerificationNeeded, PoisonPill, Props}
 import akka.pattern.ask
+import akka.sensors.actor.InstrumentedActorMetrics
 import akka.util.Timeout
 import com.typesafe.scalalogging.LazyLogging
 import io.prometheus.client.CollectorRegistry
@@ -28,6 +29,8 @@ class AkkaSensorsSpec extends AnyFreeSpec with LazyLogging with Eventually {
   private val system: ActorSystem = ActorSystem("instrumented")
   private val probeActor = system.actorOf(Props(classOf[InstrumentedProbe]), s"probe-${UUID.randomUUID().toString}")
 
+  implicit val registry: CollectorRegistry = CollectorRegistry.defaultRegistry
+
   "Launch akka app, and ensure it works" - {
 
     "starts actor system and pings the bootstrap actor" in {
@@ -35,13 +38,11 @@ class AkkaSensorsSpec extends AnyFreeSpec with LazyLogging with Eventually {
     }
 
     "ensure prometheus JMX scraping is working" in {
-      probeActor ! KnownError
 
-      probeActor ! UnknownMessage
-
+      for (_ <- 1 to 5) probeActor ! KnownError
+      for (_ <- 1 to 100) probeActor ! UnknownMessage
       probeActor ! BlockTooLong
-
-      for (i <- 1 to 1000) {
+      for (_ <- 1 to 1000) {
         pingActor
       }
 
@@ -49,14 +50,17 @@ class AkkaSensorsSpec extends AnyFreeSpec with LazyLogging with Eventually {
 
       Thread.sleep(100) // todo better condition?
 
-      val prometheusRegistry = CollectorRegistry.defaultRegistry
+      println(metrics)
 
-      val writer = new CharArrayWriter(16 * 1024)
-      TextFormat.write004(writer, prometheusRegistry.metricFamilySamples)
-      val content = writer.toString
-      println(content)
+      // todo assertions per feature
 //      assert(content.split("\n").exists(_.startsWith("cassandra_cql")))
     }
+  }
+
+  def metrics(implicit registry: CollectorRegistry) = {
+    val writer = new CharArrayWriter(16 * 1024)
+    TextFormat.write004(writer, registry.metricFamilySamples)
+    writer.toString
   }
 
   private def pingActor = {

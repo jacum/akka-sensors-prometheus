@@ -1,6 +1,6 @@
 package akka.dispatch
 
-import DispatcherInstrumentationWrapper.Run
+import akka.sensors.dispatch.DispatcherInstrumentationWrapper.Run
 
 import scala.PartialFunction.condOpt
 import scala.concurrent.OnCompleteRunnable

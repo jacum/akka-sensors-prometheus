@@ -1,5 +1,8 @@
-import sbt.Keys._
 import sbt._
+import Keys._
+import sbtrelease.ReleasePlugin.autoImport._
+import sbtrelease.ReleaseStateTransformations._
+import xerial.sbt.Sonatype.SonatypeKeys._
 
 object Publish {
 
@@ -17,8 +20,8 @@ object Publish {
   val StableToAzureFeed = Seq(
     credentials += Credentials(Path.userHome / ".credentials"),
     publishTo := Some("pkgs.dev.azure.com" at sys.env.getOrElse("FEEDURL", "")),
-    publishMavenStyle := true,
-    logLevel in aetherDeploy := Level.Info
+    publishMavenStyle := true
+//    logLevel in aetherDeploy := Level.Info
   )
 
   protected val nexus = "https://oss.sonatype.org/"
@@ -55,7 +58,7 @@ object Publish {
       </developers>
     ),
     publishMavenStyle := true,
-    publishTo := version((v: String) => Some(ossStaging).value,
+    publishTo := version(_ => Some(ossStaging)).value,
     publishArtifact in Test := false,
     publishArtifact in packageDoc := true,
     publishArtifact in packageSrc := true,

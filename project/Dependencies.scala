@@ -4,6 +4,11 @@ import sbt._
 //noinspection TypeAnnotation
 object Dependencies {
 
+  object Misc {
+    val scalaLogging = "com.typesafe.scala-logging" %% "scala-logging" % "3.9.2"
+    val deps = Seq(scalaLogging)
+  }
+
   object Akka {
     val akkaVersion = "2.6.10"
     val akkaManagementVersion = "1.0.9"
@@ -12,11 +17,13 @@ object Dependencies {
 
     val actor = "com.typesafe.akka" %% "akka-actor" % akkaVersion
     val persistence = "com.typesafe.akka" %% "akka-persistence" % akkaVersion
+    val persistenceQuery = "com.typesafe.akka" %% "akka-persistence-query" % akkaVersion
     val persistenceCassandra = "com.typesafe.akka" %% "akka-persistence-cassandra" % akkaPersistenceCassandraVersion
     val cluster = "com.typesafe.akka" %% "akka-cluster" % akkaVersion
+    val clusterTools = "com.typesafe.akka" %% "akka-cluster-tools" % akkaVersion
     val slf4j = "com.typesafe.akka" %% "akka-slf4j" % akkaVersion
 
-    val deps = Seq(actor, persistence, persistenceCassandra, cluster, slf4j)
+    val deps = Seq(actor, persistence, persistenceQuery, persistenceCassandra, cluster, clusterTools, slf4j)
   }
 
   object Prometheus {
@@ -42,6 +49,7 @@ object Dependencies {
 
   object TestTools {
     val scalaTest = "org.scalatest" %% "scalatest" % "3.2.2"
+    val log = "org.slf4j" % "slf4j-nop" % "1.7.30"
 //    val mockito = "org.mockito" % "mockito-all" % "1.10.19"
 //    val mockitoScala = "org.mockito" %% "mockito-scala" % "1.16.0"
 //    val mockitoScalaTest = "org.mockito" %% "mockito-scala-scalatest" % "1.16.0"
@@ -49,7 +57,7 @@ object Dependencies {
 //    val junitInterface = "com.novocode" % "junit-interface" % "0.11"
 //    val junitJupiter = "org.junit.jupiter" % "junit-jupiter-engine" % "5.7.0"
 
-    val deps = testDeps(scalaTest)
+    val deps = testDeps(scalaTest, log)
   }
   def scopeDeps(scope: String, modules: Seq[ModuleID]) = modules.map(m => m % scope)
   def testDeps(modules: ModuleID*) = scopeDeps("test", modules)

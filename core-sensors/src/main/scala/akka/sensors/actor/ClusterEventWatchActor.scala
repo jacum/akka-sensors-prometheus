@@ -1,5 +1,6 @@
-package akka.actor
+package akka.sensors.actor
 
+import akka.actor.{Actor, ActorLogging}
 import akka.cluster.Cluster
 import akka.cluster.ClusterEvent._
 import akka.sensors.{AkkaSensorsExtension, AkkaSensorsExtensionImpl}

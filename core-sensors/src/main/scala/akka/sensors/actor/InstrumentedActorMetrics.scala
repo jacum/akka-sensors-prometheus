@@ -1,5 +1,6 @@
-package akka.actor
+package akka.sensors.actor
 
+import akka.actor.Actor
 import akka.sensors.AkkaSensorsExtension
 
 import scala.util.control.NonFatal

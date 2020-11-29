@@ -251,12 +251,14 @@ trait InstrumentedDispatcher extends Dispatcher {
   private lazy val wrapper = new DispatcherInstrumentationWrapper(configurator.config)
 
   private val threadMXBean: ThreadMXBean = ManagementFactory.getThreadMXBean
-
+  private val interestingStates = Set("runnable", "waiting", "timed_waiting", "blocked")
   AkkaSensors.executor.scheduleWithFixedDelay(
     () => {
       val threads = threadMXBean
         .getThreadInfo(threadMXBean.getAllThreadIds, 0)
-        .filter(t => t != null && t.getThreadName.startsWith(s"$actorSystemName-$id"))
+        .filter(t => t != null
+          && interestingStates.contains(t.getThreadState.name().toLowerCase)
+          && t.getThreadName.startsWith(s"$actorSystemName-$id"))
 
       Thread.State.values.foreach { state =>
         val stateLabel = state.toString.toLowerCase

@@ -41,6 +41,14 @@ lazy val `core` = project.in(file("core-sensors"))
   .settings(commonSettings ++ publishSettings)
   .settings(
     moduleName := "core-sensors",
-    libraryDependencies ++= Akka.deps ++ Prometheus.deps ++ Misc.deps ++ TestTools.deps,
+    libraryDependencies ++= Akka.deps ++ Prometheus.deps ++ Logging.deps ++ TestTools.deps,
     dependencyOverrides ++= Akka.deps
   )
+
+lazy val `example-app` = project.in(file("example-app"))
+  .settings(commonSettings)
+  .settings(
+    moduleName := "example-app",
+    libraryDependencies ++= App.deps,
+    dependencyOverrides ++= Akka.deps
+  ).dependsOn(`core`)

@@ -10,6 +10,7 @@ import akka.util.Timeout
 import com.typesafe.scalalogging.LazyLogging
 import io.prometheus.client.CollectorRegistry
 import io.prometheus.client.exporter.common.TextFormat
+import org.scalatest.BeforeAndAfterAll
 import org.scalatest.concurrent.Eventually
 import org.scalatest.freespec.AnyFreeSpec
 import org.scalatest.time.{Millis, Seconds, Span}
@@ -19,7 +20,7 @@ import scala.concurrent.duration._
 import scala.concurrent.{Await, ExecutionContext}
 import scala.util.Random
 
-class AkkaSensorsSpec extends AnyFreeSpec with LazyLogging with Eventually {
+class AkkaSensorsSpec extends AnyFreeSpec with LazyLogging with Eventually with BeforeAndAfterAll {
 
   import InstrumentedActors._
   implicit override val patienceConfig: PatienceConfig =
@@ -80,6 +81,9 @@ class AkkaSensorsSpec extends AnyFreeSpec with LazyLogging with Eventually {
     val r = Await.result(
       persistentActor.ask(ValidCommand)(Timeout.durationToTimeout(10 seconds)), 15 seconds)
     assert(r.toString == "Pong")
+  }
+  override protected def afterAll(): Unit = {
+    system.terminate()
   }
 }
 

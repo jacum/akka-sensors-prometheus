@@ -2,22 +2,24 @@ package akka.sensors
 
 import java.util.concurrent.{Executors, ScheduledExecutorService}
 
-import akka.actor.{ActorSystem, ClassicActorSystemProvider, ExtendedActorSystem, Extension, ExtensionId, ExtensionIdProvider}
-import com.typesafe.config.Config
+import akka.actor.{ActorSystem, ClassicActorSystemProvider, ExtendedActorSystem, Extension, ExtensionId, ExtensionIdProvider, Props}
+import akka.sensors.actor.ClusterEventWatchActor
 import com.typesafe.scalalogging.LazyLogging
 import io.prometheus.client.{CollectorRegistry, Counter, Gauge, Histogram}
 
 object AkkaSensors {
-  // single-thread dedicated executor for low-frequent sensors' internal business
+  // single-thread dedicated executor for low-frequency (some seconds between calls) sensors' internal business
   val executor: ScheduledExecutorService = Executors.newScheduledThreadPool(1)
 }
 
-class AkkaSensorsExtensionImpl(config: Config) extends Extension with MetricsBuilders with LazyLogging {
+class AkkaSensorsExtensionImpl(system: ExtendedActorSystem) extends Extension with MetricsBuilders with LazyLogging {
 
   logger.info("Akka Sensors extension has been activated")
 
   val namespace = "akka_sensors"
   val subsystem = "actor"
+
+  private val clusterWatcherActor = system.actorOf(Props(classOf[ClusterEventWatchActor]), s"ClusterEventWatchActor")
 
   val activityTime: Histogram = secondsHistogram
     .name("activity_time_seconds")
@@ -83,6 +85,32 @@ class AkkaSensorsExtensionImpl(config: Config) extends Extension with MetricsBui
     .help(s"Persist rejects")
     .labelNames("actor")
     .register(registry)
+}
+
+object AkkaSensorsExtension extends ExtensionId[AkkaSensorsExtensionImpl] with ExtensionIdProvider {
+  override def lookup: ExtensionId[_ <: Extension]                               = AkkaSensorsExtension
+  override def createExtension(system: ExtendedActorSystem)                      = new AkkaSensorsExtensionImpl(system)
+  override def get(system: ActorSystem): AkkaSensorsExtensionImpl                = super.get(system)
+  override def get(system: ClassicActorSystemProvider): AkkaSensorsExtensionImpl = super.get(system)
+}
+
+object MetricOps {
+
+  implicit class HistogramExtensions(val histogram: Histogram) {
+    def observeExecution[A](f: => A): A = {
+      val timer = histogram.startTimer()
+      try f
+      finally timer.observeDuration()
+    }
+  }
+
+  implicit class HistogramChildExtensions(val histogram: Histogram.Child) {
+    def observeExecution[A](f: => A): A = {
+      val timer = histogram.startTimer()
+      try f
+      finally timer.observeDuration()
+    }
+  }
 
 }
 
@@ -113,32 +141,5 @@ trait MetricsBuilders {
 
   def counter: Counter.Builder = Counter.build().namespace(namespace).subsystem(subsystem)
   def gauge: Gauge.Builder     = Gauge.build().namespace(namespace).subsystem(subsystem)
-
-}
-
-object AkkaSensorsExtension extends ExtensionId[AkkaSensorsExtensionImpl] with ExtensionIdProvider {
-  override def lookup: ExtensionId[_ <: Extension]                               = AkkaSensorsExtension
-  override def createExtension(system: ExtendedActorSystem)                      = new AkkaSensorsExtensionImpl(system.settings.config)
-  override def get(system: ActorSystem): AkkaSensorsExtensionImpl                = super.get(system)
-  override def get(system: ClassicActorSystemProvider): AkkaSensorsExtensionImpl = super.get(system)
-}
-
-object MetricOps {
-
-  implicit class HistogramExtensions(val histogram: Histogram) {
-    def observeExecution[A](f: => A): A = {
-      val timer = histogram.startTimer()
-      try f
-      finally timer.observeDuration()
-    }
-  }
-
-  implicit class HistogramChildExtensions(val histogram: Histogram.Child) {
-    def observeExecution[A](f: => A): A = {
-      val timer = histogram.startTimer()
-      try f
-      finally timer.observeDuration()
-    }
-  }
 
 }
